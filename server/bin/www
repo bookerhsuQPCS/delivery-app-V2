@@ -1,0 +1,237 @@
+// File: server/bin/www
+import app from '../app.js';
+import http from 'http';
+import { WebSocketServer, WebSocket } from 'ws';
+import axios from 'axios';
+import express from 'express';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const port = 3000;
+app.set('port', port);
+
+const server = http.createServer(app);
+const wss = new WebSocketServer({ server });
+
+const DEFAULT_CUSTOMER = [25.0375, 121.5637];
+const MAX_ROUTE_DISTANCE_KM = 5.0;
+const RESTAURANT_SEARCH_RADIUS_KM = 3.5;
+
+const PALETTE = ['#06C167', '#FF9500', '#007AFF', '#AF52DE', '#FF2D55', '#5856D6'];
+const RIDERS = [
+  { name: '陳小豪', rating: '4.9', avatar: '🛵', vehicle: 'ABC-1234' },
+  { name: '林志明', rating: '5.0', avatar: '⚡', vehicle: 'EL-8899' },
+  { name: '張雅晴', rating: '4.8', avatar: '🛵', vehicle: 'XYZ-5678' },
+  { name: '黃俊傑', rating: '4.9', avatar: '🚴', vehicle: 'MB-9921' },
+  { name: '吳美玲', rating: '5.0', avatar: '🛵', vehicle: 'GOG-7788' }
+];
+
+let ALL_STORES = [];
+try {
+  const storesPath = path.join(__dirname, '..', 'data', 'stores.json');
+  if (fs.existsSync(storesPath)) {
+    ALL_STORES = JSON.parse(fs.readFileSync(storesPath, 'utf-8'));
+  }
+} catch (e) {}
+
+let orderSeq = 100;
+const activeTimers = new Map();
+const activeOrdersStore = [];
+
+function broadcast(data) {
+  const msg = JSON.stringify(data);
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(msg);
+    }
+  });
+}
+
+function getDistanceKm(coord1, coord2) {
+  const R = 6371;
+  const dLat = ((coord2[0] - coord1[0]) * Math.PI) / 180;
+  const dLon = ((coord2[1] - coord1[1]) * Math.PI) / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos((coord1[0] * Math.PI) / 180) * Math.cos((coord2[0] * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+  return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+}
+
+function getRandomLocation(center, radiusKm) {
+  const [centerLat, centerLng] = center;
+  const radiusInDegrees = radiusKm / 111.32;
+  const u = Math.random();
+  const v = Math.random();
+  const w = radiusInDegrees * Math.sqrt(u);
+  const t = 2 * Math.PI * v;
+  const deltaLat = w * Math.cos(t);
+  const deltaLng = (w * Math.sin(t)) / Math.cos((centerLat * Math.PI) / 180);
+  return [
+    parseFloat((centerLat + deltaLat).toFixed(6)),
+    parseFloat((centerLng + deltaLng).toFixed(6))
+  ];
+}
+
+function calculateBearing(lat1, lon1, lat2, lon2) {
+  const toRad = d => (d * Math.PI) / 180;
+  const toDeg = r => (r * 180) / Math.PI;
+  const φ1 = toRad(lat1), φ2 = toRad(lat2);
+  const Δλ = toRad(lon2 - lon1);
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  return (toDeg(Math.atan2(y, x)) + 360) % 360;
+}
+
+async function fetchValidRouteWithin5Km(customer, specificRestaurant = null) {
+  for (let attempt = 1; attempt <= 15; attempt++) {
+    const restaurant = specificRestaurant || getRandomLocation(customer, RESTAURANT_SEARCH_RADIUS_KM);
+    const url = `https://router.project-osrm.org/route/v1/driving/${restaurant[1]},${restaurant[0]};${customer[1]},${customer[0]}?overview=full&geometries=geojson&annotations=distance`;
+    
+    try {
+      const res = await axios.get(url, { timeout: 4000 });
+      if (res.data.routes && res.data.routes.length > 0) {
+        const route = res.data.routes[0];
+        const distKm = route.distance / 1000;
+
+        if (distKm > MAX_ROUTE_DISTANCE_KM && !specificRestaurant) continue;
+
+        return {
+          restaurant,
+          routeCoords: route.geometry.coordinates.map(([lng, lat]) => [lat, lng]),
+          totalDistanceKm: distKm.toFixed(1)
+        };
+      }
+    } catch (err) {
+      console.error('OSRM 錯誤:', err.message);
+    }
+
+    if (specificRestaurant) break;
+  }
+  return null;
+}
+
+async function handleDispatchNewOrder(customCustomer, customAddress) {
+  orderSeq++;
+  const orderId = `ORD-${orderSeq}`;
+  const color = PALETTE[orderSeq % PALETTE.length];
+  const rider = RIDERS[Math.floor(Math.random() * RIDERS.length)];
+  const customer = customCustomer || DEFAULT_CUSTOMER;
+
+  let matchedStore = null;
+  if (ALL_STORES.length > 0) {
+    const sorted = [...ALL_STORES].sort((a, b) => getDistanceKm(a.coords, customer) - getDistanceKm(b.coords, customer));
+    matchedStore = sorted[0];
+  }
+
+  const storeName = matchedStore ? matchedStore.name : '精選美食餐館';
+  const restaurantCoord = matchedStore ? matchedStore.coords : null;
+
+  const routeData = await fetchValidRouteWithin5Km(customer, restaurantCoord);
+  if (!routeData) return;
+
+  const { restaurant, routeCoords, totalDistanceKm } = routeData;
+
+  const orderObj = {
+    orderId,
+    name: `訂單 #${orderSeq} (${storeName})`,
+    storeName,
+    address: customAddress || (matchedStore ? matchedStore.address : '雙北外送地址'),
+    rider,
+    color,
+    restaurant,
+    customer,
+    routeCoords,
+    totalDistanceKm,
+    status: '配送中',
+    eta: Math.ceil(routeCoords.length * 0.2)
+  };
+
+  activeOrdersStore.unshift(orderObj);
+
+  broadcast({
+    type: 'ORDER_DISPATCHED',
+    order: orderObj
+  });
+
+  let step = 0;
+  const coords = routeCoords;
+
+  const timer = setInterval(() => {
+    if (step >= coords.length - 1) {
+      const found = activeOrdersStore.find(o => o.orderId === orderId);
+      if (found) {
+        found.status = '已送達';
+        found.eta = 0;
+      }
+
+      broadcast({
+        type: 'ORDER_LOCATION_UPDATE',
+        orderId,
+        status: '已送達',
+        eta: 0,
+        lat: coords[coords.length - 1][0],
+        lng: coords[coords.length - 1][1],
+        bearing: 0
+      });
+      clearInterval(timer);
+      activeTimers.delete(orderId);
+      return;
+    }
+
+    const cur = coords[step];
+    const next = coords[step + 1];
+    const bearing = calculateBearing(cur[0], cur[1], next[0], next[1]);
+    const eta = Math.ceil((coords.length - step) * 0.2);
+
+    const found = activeOrdersStore.find(o => o.orderId === orderId);
+    if (found) {
+      found.eta = eta;
+    }
+
+    broadcast({
+      type: 'ORDER_LOCATION_UPDATE',
+      orderId,
+      status: '配送中',
+      eta,
+      lat: cur[0],
+      lng: cur[1],
+      bearing,
+      step
+    });
+
+    step++;
+  }, 1000);
+
+  activeTimers.set(orderId, timer);
+}
+
+wss.on('connection', (ws) => {
+  ws.send(JSON.stringify({
+    type: 'INIT_ORDERS',
+    orders: activeOrdersStore
+  }));
+
+  ws.on('message', (msg) => {
+    try {
+      const data = JSON.parse(msg.toString());
+      if (data.type === 'DISPATCH_NEW') {
+        handleDispatchNewOrder(data.customer, data.address);
+      } else if (data.type === 'CLEAR_COMPLETED') {
+        for (let i = activeOrdersStore.length - 1; i >= 0; i--) {
+          if (data.orderIds.includes(activeOrdersStore[i].orderId)) {
+            activeOrdersStore.splice(i, 1);
+          }
+        }
+        broadcast({ type: 'ORDERS_CLEARED', orderIds: data.orderIds });
+      } else if (data.type === 'ORDER_LOCATION_UPDATE' || data.type === 'ORDER_ADDRESS_UPDATE') {
+        broadcast(data);
+      }
+    } catch (e) {}
+  });
+});
+
+server.listen(port, '0.0.0.0', () => {
+  console.log(`[Server] delivery-backend running on http://0.0.0.0:${port}`);
+});
