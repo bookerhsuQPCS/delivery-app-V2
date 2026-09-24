@@ -7,13 +7,13 @@
     <!-- 頂部身分切換條 -->
     <div class="identity-trigger-bar" @click="isPickerOpen = true">
       <div class="identity-left">
-        <div class="rider-avatar-bubble">{{ currentRiderProfile.avatar }}</div>
+        <div class="rider-avatar-bubble">{{ currentRiderProfile?.avatar || '🛵' }}</div>
         <div class="rider-text-info">
           <div class="rider-name-row">
-            <span class="rider-main-name">{{ currentRiderProfile.name }}</span>
+            <span class="rider-main-name">{{ currentRiderProfile?.name || '載入中...' }}</span>
             <span class="rider-tag">當前執勤身分</span>
           </div>
-          <div class="rider-vehicle-sub">{{ currentRiderProfile.vehicle }} · 評分 {{ currentRiderProfile.rating }}★</div>
+          <div class="rider-vehicle-sub">{{ currentRiderProfile?.vehicle }} · 評分 {{ currentRiderProfile?.rating }}★</div>
         </div>
       </div>
       <div class="identity-right">
@@ -48,7 +48,7 @@
 
     <!-- 待機狀態看板 -->
     <div class="mobile-idle-hud" v-else>
-      <div class="idle-title">🟢 外送員：{{ currentRiderProfile.name }} (線上待命中)</div>
+      <div class="idle-title">🟢 外送員：{{ currentRiderProfile?.name }} (線上待命中)</div>
       <div class="idle-desc">商家周圍 5 分鐘路程候選配對中，後台派單指派後將自動啟動 Turn-by-Turn 導航</div>
     </div>
 
@@ -168,7 +168,8 @@
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue';
 import { useRoute } from 'vue-router';
 import L from 'leaflet';
-import { calculateTurnGuidance } from '@/utils/navigationUtils';
+import { calculateTurnGuidance, getStagePillClass, getStagePillText, getOrderBadgeClass } from '@/utils/navigationUtils';
+import { getApiBase } from '@/utils/geoUtils';
 
 const route = useRoute();
 const mapContainer = ref(null);
@@ -178,16 +179,8 @@ const isAutoFollow = ref(true);
 const isPickerOpen = ref(false);
 const allOrders = reactive([]);
 
-// 系統註冊外送員庫
-const registeredRiders = [
-  { name: '陳小豪', avatar: '🛵', vehicle: 'ABC-1234', rating: '4.9' },
-  { name: '林志明', avatar: '⚡', vehicle: 'EL-8899', rating: '5.0' },
-  { name: '張雅晴', avatar: '🛵', vehicle: 'XYZ-5678', rating: '4.8' },
-  { name: '黃俊傑', avatar: '🚴', vehicle: 'MB-9921', rating: '4.9' },
-  { name: '吳美玲', avatar: '🛵', vehicle: 'GOG-7788', rating: '5.0' },
-  { name: '蔡宏偉', avatar: '🏍️', vehicle: 'TK-3344', rating: '4.9' }
-];
-
+// 從後端讀取外送員清單庫
+const registeredRiders = ref([]);
 const activeRiderName = ref(route.query.rider || '陳小豪');
 
 const navGuidance = reactive({
@@ -202,7 +195,10 @@ let ws = null;
 const orderLayers = new Map();
 
 const currentRiderProfile = computed(() => {
-  return registeredRiders.find(r => r.name === activeRiderName.value) || registeredRiders[0];
+  if (registeredRiders.value.length === 0) {
+    return { name: activeRiderName.value, avatar: '🛵', vehicle: '', rating: '5.0' };
+  }
+  return registeredRiders.value.find(r => r.name === activeRiderName.value) || registeredRiders.value[0];
 });
 
 const myOrders = computed(() => {
@@ -217,35 +213,24 @@ function getRiderOrderCount(name) {
   return allOrders.filter(o => o.rider?.name === name).length;
 }
 
-function getStagePillClass(stage) {
-  if (stage === 'STANDBY') return 'stage-standby';
-  if (stage === 'PICKING_UP') return 'stage-pickup';
-  if (stage === 'WAITING_MEAL') return 'stage-waiting';
-  if (stage === 'DELIVERING') return 'stage-deliver';
-  if (stage === 'DELIVERED') return 'stage-delivered';
-  return 'stage-pickup';
-}
-
-function getStagePillText(order) {
-  if (!order) return '';
-  if (order.status === '已送達' || order.stage === 'DELIVERED') return '🎉 訂單已圓滿送達';
-  if (order.stage === 'STANDBY') {
-    const remain = Math.max(0, (order.departAtMin || 0) - (order.elapsedSimMin || 0));
-    return `⏳ 等候出發：預計第 ${order.departAtMin || 0} 分啟程 (${remain}分後)`;
+// 讀取後端外送員清單
+async function loadRidersFromBackend() {
+  try {
+    const res = await fetch(`${getApiBase()}/api/riders`);
+    if (res.ok) {
+      registeredRiders.value = await res.json();
+      if (!route.query.rider && registeredRiders.value.length > 0) {
+        activeRiderName.value = registeredRiders.value[0].name;
+      }
+    }
+  } catch (err) {
+    console.error('無法讀取外送員清單:', err);
   }
-  if (order.stage === 'PICKING_UP') return '📍 階段 1/2：前往商家取餐';
-  if (order.stage === 'WAITING_MEAL') return `🍳 現場等候備餐中 (剩餘 ${order.prepRemainingMin || 0} 分鐘)`;
-  if (order.stage === 'DELIVERING') return '🚀 階段 2/2：配送送達客戶';
-  return order.status;
 }
 
-function getOrderBadgeClass(status) {
-  if (status === '已送達') return 'done';
-  if (status.includes('取餐')) return 'pickup';
-  return 'delivering';
-}
+onMounted(async () => {
+  await loadRidersFromBackend();
 
-onMounted(() => {
   map = L.map(mapContainer.value, {
     zoomControl: false,
     attributionControl: false

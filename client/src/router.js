@@ -1,13 +1,34 @@
+// File: client/src/router.js
 import { createRouter, createWebHistory } from 'vue-router';
-import AdminView from './views/AdminView.vue';
-import DriverView from './views/DriverView.vue';
+import OrderView from './views/OrderView.vue';
 import MobileDriverView from './views/MobileDriverView.vue';
+import MonitorView from './views/MonitorView.vue';
 
 const routes = [
-  { path: '/', redirect: '/admin' },
-  { path: '/admin', name: 'Admin', component: AdminView },
-  { path: '/driver', name: 'Driver', component: DriverView },
-  { path: '/mobile', name: 'MobileDriver', component: MobileDriverView }
+  {
+    path: '/',
+    redirect: '/order'
+  },
+  {
+    path: '/driver',
+    name: 'driver',
+    component: MobileDriverView
+  },
+  {
+    path: '/mobile',
+    name: 'mobile',
+    component: MobileDriverView
+  },
+  {
+    path: '/monitor',
+    name: 'monitor',
+    component: MonitorView
+  },
+  {
+    path: '/order',
+    name: 'order',
+    component: OrderView
+  },
 ];
 
 const router = createRouter({

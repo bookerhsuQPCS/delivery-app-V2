@@ -101,6 +101,52 @@ export function isDrinkStore(store) {
   return false;
 }
 
+/**
+ * 取得真實道路 OSRM 駕駛路網座標 (含高可靠性退階模擬)
+ * @param {Array<number>} start [lat, lng]
+ * @param {Array<number>} end [lat, lng]
+ */
+export async function fetchOsrmRoute(start, end) {
+  if (!start || !end) return { coords: [start || [25.04, 121.51], end || [25.04, 121.51]], distance: 1000 };
+
+  const url = `https://router.project-osrm.org/route/v1/driving/${start[1]},${start[0]};${end[1]},${end[0]}?overview=full&geometries=geojson`;
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2000); // 2秒逾時防呆
+
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeoutId);
+
+    const data = await res.json();
+    if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+      const route = data.routes[0];
+      const coords = route.geometry.coordinates.map(pt => [pt[1], pt[0]]);
+      return {
+        coords,
+        distance: route.distance
+      };
+    }
+  } catch (err) {
+    console.warn('[OSRM] 外部路網請求逾時或連線受阻，自動啟用本機步進平滑路徑模擬');
+  }
+
+  // 🌟 高可靠兜底：如果 OSRM 連不上，本機自動在起點到終點之間內插 15 個平滑點，確保地圖 100% 繪製且外送員平滑行駛
+  const steps = 15;
+  const fallbackCoords = [];
+  for (let i = 0; i <= steps; i++) {
+    const ratio = i / steps;
+    const lat = start[0] + (end[0] - start[0]) * ratio;
+    const lng = start[1] + (end[1] - start[1]) * ratio;
+    fallbackCoords.push([lat, lng]);
+  }
+
+  return {
+    coords: fallbackCoords,
+    distance: 2500
+  };
+}
+
 // 後端 API 基礎路徑
 export function getApiBase() {
   return window.location.port === '5173' ? 'http://localhost:3000' : '';

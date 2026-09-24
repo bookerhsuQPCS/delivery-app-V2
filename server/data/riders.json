@@ -1,0 +1,22 @@
+[
+  { "id": "RIDER-001", "name": "陳小豪", "avatar": "🛵", "vehicle": "ABC-1234 (光陽 GP125)", "rating": "4.9" },
+  { "id": "RIDER-002", "name": "林志明", "avatar": "⚡", "vehicle": "EL-8899 (Gogoro S2)", "rating": "5.0" },
+  { "id": "RIDER-003", "name": "張雅晴", "avatar": "🛵", "vehicle": "XYZ-5678 (三陽 JET SL)", "rating": "4.8" },
+  { "id": "RIDER-004", "name": "黃俊傑", "avatar": "🚴", "vehicle": "MB-9921 (Giant 變速車)", "rating": "4.9" },
+  { "id": "RIDER-005", "name": "吳美玲", "avatar": "🛵", "vehicle": "GOG-7788 (Viva Mix)", "rating": "5.0" },
+  { "id": "RIDER-006", "name": "蔡宏偉", "avatar": "🏍️", "vehicle": "TK-3344 (山葉 Force 2.0)", "rating": "4.9" },
+  { "id": "RIDER-007", "name": "許家豪", "avatar": "🛵", "vehicle": "MM-3211 (三陽 MMBCU)", "rating": "4.9" },
+  { "id": "RIDER-008", "name": "鄭婷婷", "avatar": "⚡", "vehicle": "PB-5566 (宏佳騰 Ai-1)", "rating": "4.8" },
+  { "id": "RIDER-009", "name": "周冠宇", "avatar": "🏍️", "vehicle": "YZ-7711 (山葉 Cygnus Gryphus)", "rating": "5.0" },
+  { "id": "RIDER-010", "name": "楊政勳", "avatar": "🛵", "vehicle": "KR-8822 (光陽 KRV 180)", "rating": "4.7" },
+  { "id": "RIDER-011", "name": "郭于萱", "avatar": "🛵", "vehicle": "CL-3399 (三陽 CLBCU)", "rating": "4.9" },
+  { "id": "RIDER-012", "name": "謝博安", "avatar": "⚡", "vehicle": "GO-4412 (Gogoro Delight)", "rating": "4.9" },
+  { "id": "RIDER-013", "name": "劉國榮", "avatar": "🛵", "vehicle": "KM-6655 (光陽 新名流 125)", "rating": "4.8" },
+  { "id": "RIDER-014", "name": "廖建良", "avatar": "🛵", "vehicle": "SYM-9988 (三陽 DRGBT 158)", "rating": "5.0" },
+  { "id": "RIDER-015", "name": "李婉如", "avatar": "🚴", "vehicle": "UB-1122 (美利達 公路車)", "rating": "4.9" },
+  { "id": "RIDER-016", "name": "何承祐", "avatar": "🛵", "vehicle": "AX-3322 (山葉 RS NEO)", "rating": "4.8" },
+  { "id": "RIDER-017", "name": "高子晴", "avatar": "⚡", "vehicle": "EV-9900 (中華 eMOVING)", "rating": "5.0" },
+  { "id": "RIDER-018", "name": "潘威廉", "avatar": "🏍️", "vehicle": "CB-6500 (Honda CBR 150R)", "rating": "4.9" },
+  { "id": "RIDER-019", "name": "蘇敏琪", "avatar": "🛵", "vehicle": "QL-1133 (三陽 Fiddle 125)", "rating": "4.9" },
+  { "id": "RIDER-020", "name": "方啟瑞", "avatar": "🛵", "vehicle": "KY-7766 (光陽 雷霆S 150)", "rating": "4.8" }
+]

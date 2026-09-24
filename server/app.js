@@ -209,6 +209,107 @@ app.post('/api/dispatch-log', (req, res) => {
   res.json({ status: 'logged' });
 });
 
+// ==========================================
+// 監控中心：取得特定外送員近 3 天已完成訂單 (僅店家至客戶端軌跡)
+// ==========================================
+// ==========================================
+// 實體訂單庫管理 (server/data/orders.json)
+// ==========================================
+const ordersJsonPath = path.join(__dirname, 'data', 'orders.json');
+
+function getStoredOrders() {
+  try {
+    if (!fs.existsSync(ordersJsonPath)) {
+      fs.writeFileSync(ordersJsonPath, JSON.stringify([], null, 2), 'utf-8');
+      return [];
+    }
+    const data = fs.readFileSync(ordersJsonPath, 'utf-8');
+    return JSON.parse(data || '[]');
+  } catch (err) {
+    console.error('[Database] 讀取 orders.json 失敗:', err.message);
+    return [];
+  }
+}
+
+function saveStoredOrders(orders) {
+  try {
+    fs.writeFileSync(ordersJsonPath, JSON.stringify(orders, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('[Database] 寫入 orders.json 失敗:', err.message);
+  }
+}
+
+// 訂單完成送達時呼叫：寫入/更新完整訂單實體與真實 OSRM 道路軌跡
+app.post('/api/orders/complete', (req, res) => {
+  const orderData = req.body;
+  if (!orderData || !orderData.orderId) {
+    return res.status(400).json({ error: '缺少 orderId 或訂單資料' });
+  }
+
+  const orders = getStoredOrders();
+  const existingIndex = orders.findIndex(o => o.orderId === orderData.orderId);
+
+  const completedRecord = {
+    orderId: orderData.orderId,
+    status: '已送達',
+    riderName: orderData.riderName || orderData.rider?.name || '未知騎士',
+    storeName: orderData.storeName || '',
+    storeCategory: orderData.storeCategory || '一般餐飲',
+    customerAddress: orderData.customerAddress || orderData.address || '',
+    deliveryFee: orderData.deliveryFee || 49,
+    surcharge: orderData.surcharge || 0,
+    deliverDistKm: orderData.deliverDistKm || '0',
+    completedAt: orderData.completedAt || new Date().toISOString(),
+    storeCoord: orderData.storeCoord || orderData.restaurant,
+    customerCoord: orderData.customerCoord || orderData.customer,
+    // 嚴格保存貼齊路網的真實 OSRM 節點陣列
+    deliverRouteCoords: orderData.deliverRouteCoords || []
+  };
+
+  if (existingIndex !== -1) {
+    orders[existingIndex] = completedRecord;
+  } else {
+    orders.unshift(completedRecord);
+  }
+
+  saveStoredOrders(orders);
+  console.log(`[Order DB] 訂單 ${orderData.orderId} 已成功落盤保存至 orders.json (共 ${completedRecord.deliverRouteCoords.length} 個道路點)`);
+  res.json({ success: true, orderId: orderData.orderId });
+});
+
+// 監控中心：取得特定外送員近 3 天已完成訂單 (直接自 orders.json 檢索)
+app.get('/api/monitor/rider-history', (req, res) => {
+  const { riderName } = req.query;
+  if (!riderName) {
+    return res.status(400).json({ error: '缺少 riderName 參數' });
+  }
+
+  const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  const allOrders = getStoredOrders();
+
+  // 1. 篩選指定外送員、已送達、且在三天內的真實訂單
+  const history = allOrders.filter(o => {
+    if (o.riderName !== riderName) return false;
+    const completedTime = new Date(o.completedAt).getTime();
+    return (now - completedTime) <= THREE_DAYS_MS;
+  });
+
+  res.json(history);
+});
+
+// 讀取外送員清單 API (不用再宣告 fs / path)
+app.get('/api/riders', (req, res) => {
+  try {
+    const ridersPath = path.join(__dirname, 'data', 'riders.json');
+    const ridersData = fs.readFileSync(ridersPath, 'utf8');
+    res.json(JSON.parse(ridersData));
+  } catch (err) {
+    console.error('讀取外送員資料失敗:', err);
+    res.status(500).json({ error: '無法讀取外送員資料' });
+  }
+});
+
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date() });
 });
