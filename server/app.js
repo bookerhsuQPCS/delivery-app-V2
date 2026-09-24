@@ -43,6 +43,59 @@ app.get('/api/restaurants', (req, res) => {
   res.json(STORES_DATABASE);
 });
 
+// ==========================================
+// 1-1. API: 菜單查詢 (自 data/menus.json 載入並比對分類)
+// ==========================================
+app.get('/api/menu', (req, res) => {
+  let storeName = '';
+  let rawCat = '';
+  try {
+    storeName = decodeURIComponent(String(req.query.storeName || ''));
+    rawCat = decodeURIComponent(String(req.query.category || ''));
+  } catch (e) {
+    storeName = String(req.query.storeName || '');
+    rawCat = String(req.query.category || '');
+  }
+
+  const combinedText = `${storeName} ${rawCat}`;
+
+  // 讀取 data/menus.json
+  let menus = {};
+  try {
+    const menusPath = path.join(__dirname, 'data', 'menus.json');
+    if (fs.existsSync(menusPath)) {
+      menus = JSON.parse(fs.readFileSync(menusPath, 'utf-8'));
+    }
+  } catch (e) {
+    console.error('[Menu Read Error]:', e.message);
+  }
+
+  let menuType = 'BENTO';
+  if (/茶|手搖|咖啡|飲品|冷飲|清心|五十嵐|50嵐|麻古|迷客夏|可不可|鮮茶|拿鐵|沐睦|商行|飲食|飲料/i.test(combinedText)) {
+    menuType = 'DRINK';
+  } else if (/麵|拉麵|牛肉麵|意麵|米粉|水餃|餛飩|烏龍/i.test(combinedText)) {
+    menuType = 'NOODLE';
+  } else if (/義大利|牛排|美式|漢堡|火鍋|熱炒|酒食|餐酒|鐵板燒|義式|西餐/i.test(combinedText)) {
+    menuType = 'RESTAURANT';
+  }
+
+  const categoryData = menus[menuType] || menus['BENTO'] || {
+    categoryLabel: '精選便當快餐',
+    items: [
+      { id: 'b1', name: '黃金酥脆炸雞腿便當', price: 120, desc: '招牌主廚特製配菜' },
+      { id: 'b2', name: '古早味厚切排骨便當', price: 110, desc: '酥炸鹹香下飯' }
+    ]
+  };
+
+  res.json({
+    success: true,
+    categoryType: menuType,
+    categoryLabel: categoryData.categoryLabel,
+    storeName: storeName,
+    items: categoryData.items
+  });
+});
+
 // 雙北核心地址與地標快取字典 (確保 100% 快速解析)
 const TW_PRESET_LOCATIONS = {
   // 台北車站周邊
@@ -210,9 +263,6 @@ app.post('/api/dispatch-log', (req, res) => {
 });
 
 // ==========================================
-// 監控中心：取得特定外送員近 3 天已完成訂單 (僅店家至客戶端軌跡)
-// ==========================================
-// ==========================================
 // 實體訂單庫管理 (server/data/orders.json)
 // ==========================================
 const ordersJsonPath = path.join(__dirname, 'data', 'orders.json');
@@ -239,7 +289,7 @@ function saveStoredOrders(orders) {
   }
 }
 
-// 訂單完成送達時呼叫：寫入/更新完整訂單實體與真實 OSRM 道路軌跡
+// 訂單完成送達時呼叫：寫入/更新完整訂單實體（包含餐點明細與結帳金額）
 app.post('/api/orders/complete', (req, res) => {
   const orderData = req.body;
   if (!orderData || !orderData.orderId) {
@@ -249,6 +299,10 @@ app.post('/api/orders/complete', (req, res) => {
   const orders = getStoredOrders();
   const existingIndex = orders.findIndex(o => o.orderId === orderData.orderId);
 
+  const itemTotal = Number(orderData.itemTotal || 0);
+  const deliveryFee = Number(orderData.deliveryFee || 49);
+  const totalBill = itemTotal + deliveryFee;
+
   const completedRecord = {
     orderId: orderData.orderId,
     status: '已送達',
@@ -256,13 +310,18 @@ app.post('/api/orders/complete', (req, res) => {
     storeName: orderData.storeName || '',
     storeCategory: orderData.storeCategory || '一般餐飲',
     customerAddress: orderData.customerAddress || orderData.address || '',
-    deliveryFee: orderData.deliveryFee || 49,
+    items: orderData.items || [],
+    itemTotal: itemTotal,
+    deliveryFee: deliveryFee,
+    totalBill: totalBill,
+    // 🌟 確保這兩行有寫入落盤：
+    paymentMethod: orderData.paymentMethod || 'CASH',
+    paymentLabel: orderData.paymentLabel || '💵 現金支付',
     surcharge: orderData.surcharge || 0,
     deliverDistKm: orderData.deliverDistKm || '0',
     completedAt: orderData.completedAt || new Date().toISOString(),
     storeCoord: orderData.storeCoord || orderData.restaurant,
     customerCoord: orderData.customerCoord || orderData.customer,
-    // 嚴格保存貼齊路網的真實 OSRM 節點陣列
     deliverRouteCoords: orderData.deliverRouteCoords || []
   };
 
@@ -273,7 +332,7 @@ app.post('/api/orders/complete', (req, res) => {
   }
 
   saveStoredOrders(orders);
-  console.log(`[Order DB] 訂單 ${orderData.orderId} 已成功落盤保存至 orders.json (共 ${completedRecord.deliverRouteCoords.length} 個道路點)`);
+  console.log(`[Order DB] 訂單 ${orderData.orderId} 已成功落盤保存至 orders.json，總金額: NT$ ${totalBill} (餐點: $${itemTotal} + 運費: $${deliveryFee})`);
   res.json({ success: true, orderId: orderData.orderId });
 });
 
@@ -288,7 +347,6 @@ app.get('/api/monitor/rider-history', (req, res) => {
   const now = Date.now();
   const allOrders = getStoredOrders();
 
-  // 1. 篩選指定外送員、已送達、且在三天內的真實訂單
   const history = allOrders.filter(o => {
     if (o.riderName !== riderName) return false;
     const completedTime = new Date(o.completedAt).getTime();
@@ -298,7 +356,7 @@ app.get('/api/monitor/rider-history', (req, res) => {
   res.json(history);
 });
 
-// 讀取外送員清單 API (不用再宣告 fs / path)
+// 讀取外送員清單 API
 app.get('/api/riders', (req, res) => {
   try {
     const ridersPath = path.join(__dirname, 'data', 'riders.json');

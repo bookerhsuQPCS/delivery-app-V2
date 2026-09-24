@@ -81,6 +81,8 @@ export function useOrderDispatch() {
     storeCoord,
     customerCoord,
     customerAddress,
+    items = [],
+    itemTotal = 0,
     onOrderCreated,
     onRiderStep
   }) {
@@ -114,7 +116,10 @@ export function useOrderDispatch() {
         restaurant: storeCoord,
         customer: customerCoord,
         address: customerAddress || '指定外送點',
+        items,
+        itemTotal,
         deliveryFee,
+        totalBill: itemTotal + deliveryFee,
         surcharge,
         deliverDistKm,
         pickupRouteCoords: pickupRoute.coords || [riderOrigin, storeCoord],
@@ -140,13 +145,11 @@ export function useOrderDispatch() {
     }
   }
 
-  // 兩階段動態模擬
   function startSimulation(ord, onRiderStep) {
     const pCoords = ord.pickupRouteCoords;
     const dCoords = ord.deliverRouteCoords;
     let pIdx = 0;
     let dIdx = 0;
-    // 當前階段行駛過之座標
     let traveledPoints = [ord.riderOrigin];
 
     function updateOrderState(stage, status) {
@@ -180,10 +183,8 @@ export function useOrderDispatch() {
           broadcastLocation(ord.orderId, cur[0], cur[1], ord.stage, ord.status);
           pIdx += 2;
         } else {
-          // 🌟 取餐完成！切換為外送途中，重置 traveledPoints 為店家座標
           updateOrderState('DELIVERING', '外送途中 (往客戶端)');
           traveledPoints = [ord.restaurant];
-          // 第5個參數 isPickedUp = true：通知地圖清除取餐舊路徑與起點標記
           if (onRiderStep) onRiderStep(ord.orderId, ord.restaurant, traveledPoints, false, true);
         }
       }
@@ -196,14 +197,13 @@ export function useOrderDispatch() {
           broadcastLocation(ord.orderId, cur[0], cur[1], ord.stage, ord.status);
           dIdx += 2;
         } else {
-          // 送達完成
           updateOrderState('DELIVERED', '已送達');
           ord.eta = 0;
           const lastPt = dCoords[dCoords.length - 1];
-          // isDelivered = true
           if (onRiderStep) onRiderStep(ord.orderId, lastPt, traveledPoints, true, false);
           broadcastLocation(ord.orderId, lastPt[0], lastPt[1], ord.stage, ord.status);
 
+          // 存檔至後端（包含餐點明細與結帳金額）
           fetch(`${getApiBase()}/api/orders/complete`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -213,6 +213,8 @@ export function useOrderDispatch() {
               storeName: ord.storeName,
               storeCategory: ord.storeCategory,
               customerAddress: ord.address,
+              items: ord.items,
+              itemTotal: ord.itemTotal,
               deliveryFee: ord.deliveryFee,
               surcharge: ord.surcharge,
               deliverDistKm: ord.deliverDistKm,

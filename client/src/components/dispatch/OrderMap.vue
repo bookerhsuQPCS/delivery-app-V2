@@ -114,6 +114,14 @@ function clearPreviewStore() {
   }
 }
 
+// 🌟 清除客戶送達點預覽標記
+function clearPreviewCustomer() {
+  if (previewCustomerMarker && map) {
+    map.removeLayer(previewCustomerMarker);
+    previewCustomerMarker = null;
+  }
+}
+
 function showPreviewStore(coord, name, address) {
   if (!map || !coord) return;
   const tooltipText = `<strong>店家</strong>：${name} (${address || ''})`;
@@ -265,13 +273,10 @@ function updateRiderStep(orderId, currentCoord, traveledCoords, isDelivered = fa
 
   // 🌟 1. 取餐完成：清除原點與取餐舊路線，只保留「店家 ➔ 客戶」路網
   if (isPickedUp) {
-    // 移除起點 📍
     if (map.hasLayer(layer.originMarker)) {
       map.removeLayer(layer.originMarker);
     }
-    // 規劃虛線只保留「店家到客戶」
     layer.plannedLine.setLatLngs(layer.deliverRouteCoords);
-    // 重設實線為剛出發的狀態
     layer.traveledLine.setLatLngs(traveledCoords);
     layer.riderMarker.setLatLng(currentCoord);
     return;
@@ -299,12 +304,32 @@ function updateRiderStep(orderId, currentCoord, traveledCoords, isDelivered = fa
   layer.traveledLine.setLatLngs(traveledCoords);
 }
 
+// 🌟 清除已送達訂單在地圖上的所有圖層（店家標記、客戶標記、軌跡線）
+function removeOrderLayers(orderIdsToRemove) {
+  if (!map || !Array.isArray(orderIdsToRemove)) return;
+
+  orderIdsToRemove.forEach((id) => {
+    const layer = orderLayers.get(id);
+    if (layer) {
+      if (layer.storeMarker && map.hasLayer(layer.storeMarker)) map.removeLayer(layer.storeMarker);
+      if (layer.clientMarker && map.hasLayer(layer.clientMarker)) map.removeLayer(layer.clientMarker);
+      if (layer.plannedLine && map.hasLayer(layer.plannedLine)) map.removeLayer(layer.plannedLine);
+      if (layer.traveledLine && map.hasLayer(layer.traveledLine)) map.removeLayer(layer.traveledLine);
+      if (layer.originMarker && map.hasLayer(layer.originMarker)) map.removeLayer(layer.originMarker);
+      if (layer.riderMarker && map.hasLayer(layer.riderMarker)) map.removeLayer(layer.riderMarker);
+      orderLayers.delete(id);
+    }
+  });
+}
+
 defineExpose({
   clearPreviewStore,
+  clearPreviewCustomer,
   showPreviewStore,
   showPreviewCustomer,
   addOrderLayer,
-  updateRiderStep
+  updateRiderStep,
+  removeOrderLayers // 🌟 補上這行
 });
 </script>
 
@@ -373,7 +398,7 @@ defineExpose({
   background: #7c3aed;
   color: #ffffff;
   border: 2px solid #ffffff;
-  border-radius: 8px; /* 故意維持方圓形，與客戶的純圓形做幾何區隔 */
+  border-radius: 8px;
   box-shadow: 0 2px 7px rgba(124, 58, 237, 0.5), 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 

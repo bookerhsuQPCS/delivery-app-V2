@@ -2,8 +2,20 @@
 <template>
   <div class="control-card orders-list-box">
     <div class="card-title flex-between">
-      <span>📋 當前任務列表</span>
-      <span class="badge">{{ orders.length }} 單</span>
+      <div class="title-left">
+        <span>📋 當前任務列表</span>
+        <span class="badge">{{ orders.length }} 單</span>
+      </div>
+
+      <!-- 🌟 有已送達單時才顯示清除按鈕 -->
+      <button
+        v-if="completedCount > 0"
+        class="clean-btn"
+        @click="$emit('clear-completed')"
+        title="清除所有已送達的訂單與地圖軌跡"
+      >
+        🧹 清除已送達 ({{ completedCount }})
+      </button>
     </div>
 
     <div v-if="orders.length === 0" class="empty-state">
@@ -39,8 +51,8 @@
             <strong>{{ ord.rider?.name }}</strong>
             <span class="rider-vehicle">({{ ord.rider?.vehicle || '機車' }})</span>
           </div>
-          <div class="order-status-badge" :class="getStatusBadgeClass(ord.stage)">
-            {{ ord.status }}
+          <div class="order-status-badge" :class="getStatusBadgeClass(ord)">
+            {{ getDisplayStatus(ord) }}
           </div>
         </div>
 
@@ -57,19 +69,44 @@
 </template>
 
 <script setup>
-defineProps({
+import { computed } from 'vue';
+
+const props = defineProps({
   orders: {
     type: Array,
     default: () => []
   }
 });
 
-function getStatusBadgeClass(stage) {
-  if (stage === 'ASSIGNED_HOLD') return 'badge-hold';
-  if (stage === 'PICKING_UP') return 'badge-pickup';
-  if (stage === 'DELIVERING') return 'badge-deliver';
-  if (stage === 'DELIVERED') return 'badge-done';
+defineEmits(['clear-completed', 'confirm-received']);
+
+// 🌟 包含「已送達」、「已確認」或「自動確認」的訂單
+const completedCount = computed(() => {
+  return props.orders.filter(
+    (o) =>
+      o.status === '已送達' ||
+      o.status === '已確認' ||
+      o.status === '自動確認' ||
+      o.confirmStatus === 'MANUAL_CONFIRMED' ||
+      o.confirmStatus === 'AUTO_CONFIRMED'
+  ).length;
+});
+
+function getStatusBadgeClass(ord) {
+  if (ord.confirmStatus === 'MANUAL_CONFIRMED') return 'badge-confirmed';
+  if (ord.confirmStatus === 'AUTO_CONFIRMED') return 'badge-auto';
+  if (ord.stage === 'DELIVERED' || ord.status === '待確認' || ord.status === '已送達') return 'badge-pending-confirm';
+  if (ord.stage === 'ASSIGNED_HOLD') return 'badge-hold';
+  if (ord.stage === 'PICKING_UP') return 'badge-pickup';
+  if (ord.stage === 'DELIVERING') return 'badge-deliver';
   return 'badge-default';
+}
+
+function getDisplayStatus(ord) {
+  if (ord.confirmStatus === 'MANUAL_CONFIRMED' || ord.status === '已確認') return '✅ 已確認';
+  if (ord.confirmStatus === 'AUTO_CONFIRMED' || ord.status === '自動確認') return '🤖 自動確認';
+  if (ord.stage === 'DELIVERED' || ord.status === '待確認' || ord.status === '已送達') return '⏳ 待確認';
+  return ord.status;
 }
 
 function getOrderProgressWidth(ord) {
@@ -99,12 +136,34 @@ function getOrderProgressWidth(ord) {
   justify-content: space-between;
   align-items: center;
 }
+.title-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 .badge {
   background: #334155;
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 10px;
   color: #cbd5e1;
+}
+
+/* 🌟 清除已送達紅色微光按鈕 */
+.clean-btn {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #f87171;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.clean-btn:hover {
+  background: #ef4444;
+  color: #ffffff;
 }
 
 .orders-list-box {
@@ -241,5 +300,49 @@ function getOrderProgressWidth(ord) {
 .progress-fill {
   height: 100%;
   transition: width 0.3s;
+}
+/* 狀態標籤樣式 */
+.badge-pending-confirm {
+  background: #b45309;
+  color: #fef08a;
+  animation: pulseGlow 1s infinite alternate;
+}
+.badge-confirmed {
+  background: #065f46;
+  color: #34d399;
+}
+.badge-auto {
+  background: #1e3a5f;
+  color: #38bdf8;
+}
+
+/* 待確認操作列 */
+.confirm-action-box {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #0f172a;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px dashed #eab308;
+  margin-top: 4px;
+}
+.countdown-hint {
+  font-size: 11px;
+  color: #facc15;
+}
+.manual-confirm-btn {
+  background: #10b981;
+  color: #ffffff;
+  border: none;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.manual-confirm-btn:hover {
+  background: #059669;
 }
 </style>
